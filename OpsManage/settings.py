@@ -40,7 +40,7 @@ SECRET_KEY = 'i)&2z^y%0w1o-%h3da1*$!9@5hx^dzp-_w&rx&4k6ml)l24&ev'
 DEBUG = True
 ALLOWED_HOSTS = ['*']
 
-REDSI_KWARGS_LPUSH = {"host":config.get('redis', 'host'),'port':config.get('redis', 'port'),'db':config.get('redis', 'ansible_db')}
+REDSI_KWARGS_LPUSH = {"host":config.get('redis', 'host'),'port':config.get('redis', 'port'),'db':config.get('redis', 'ansible_db'),'password':config.get('redis', 'password')}
 REDSI_LPUSH_POOL = None
 
 
@@ -48,7 +48,7 @@ CHANNEL_LAYERS = {
     "default": {
        "BACKEND": "channels_redis.core.RedisChannelLayer",  # use redis backend
        "CONFIG": {
-            "hosts": [(config.get('redis', 'host'), config.get('redis', 'port'))],  #无密码方式         
+            "hosts": [("redis://:" + config.get('redis', 'password') + "@"+ config.get('redis', 'host') + ":"+ config.get('redis', 'port') + "/0")]
            },
        },
 }
@@ -77,13 +77,13 @@ INSTALLED_APPS = [
     'deploy',
     'orders',
     'wiki',
-    'filemanage',
     'cicd',
     'sched',
     'django_celery_beat',
     'django_celery_results',
     'websocket',
-    'apply'
+    'apply',
+    'account'
 ]
 
 MIDDLEWARE = [
@@ -95,6 +95,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
 
 
 REST_FRAMEWORK = {
@@ -113,6 +114,12 @@ MEDIA_ROOT = os.path.join(BASE_DIR,'upload/')
 WORKSPACES = config.get('deploy', 'path')
 
 ROOT_URLCONF = 'OpsManage.urls'
+
+AUTH_USER_MODEL = 'account.User'
+
+AUTHENTICATION_BACKENDS = (
+    'apps.account.backends.ModelBackend',
+)
 
 TEMPLATES = [
     {
@@ -204,7 +211,7 @@ if config.get('ldap', 'enable') == 'true':
           
     AUTHENTICATION_BACKENDS = (
         'django_auth_ldap.backend.LDAPBackend',
-        'django.contrib.auth.backends.ModelBackend',
+        'apps.account.backends.ModelBackend',
     )
     
     AUTH_LDAP_SERVER_URI = "ldap://{server}:{port}".format(server=config.get('ldap', 'server'),port=config.get('ldap', 'port')) #配置ldap的服务地址

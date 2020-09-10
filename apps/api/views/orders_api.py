@@ -1,7 +1,7 @@
 #!/usr/bin/env python  
 # _#_ coding:utf-8 _*_
+import time
 from django.db.models import Q
-from rest_framework import viewsets,permissions
 from api import serializers
 from orders.models import *
 from rest_framework import status
@@ -11,34 +11,107 @@ from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from django.contrib.auth.decorators import permission_required
 from orders.models import Order_System
-from dao.orders import ORDERS_COUNT_RBT
+from dao.orders import ORDERS_COUNT_RBT,OrderBase
 from django.http import JsonResponse
+from django.core.exceptions import PermissionDenied
+from utils import base
 
-
-@api_view(['PUT', 'DELETE'])
-@permission_required('orders.orders_change_order_system',raise_exception=True)
-def order_detail(request, id,format=None):
-    """
-    Retrieve, update or delete a server assets instance.
-    """
-    try:
-        snippet = Order_System.objects.get(id=id)
-    except Order_System.DoesNotExist:
-        return Response(status=status.HTTP_404_NOT_FOUND)
+class OrderDetail(APIView,OrderBase):
     
-    if request.method == 'PUT':           
-        serializer = serializers.OrderSerializer(snippet, data=request.data)
-        if request.user.is_superuser or request.user.id == serializer.order_executor: 
-            if serializer.is_valid():
-                serializer.save()
-                return Response(serializer.data)
+    def get_object(self, pk):
+        try:
+            return Order_System.objects.get(id=pk)
+        except Order_System.DoesNotExist:
+            raise Http404          
+
+    def check_perms(self, request, pk):
+        order = self.get_object(pk)
+
+        if request.user.is_superuser:
+            return order
+        
+#         if order.is_expired() and order.is_unexpired():  
+              
+        if request.user.id == order.order_user or request.user.id == order.order_executor:
+            return order  
+        
+        raise PermissionDenied()        
+    
+    def check_update_content_perms(self, request, order):
+        #如果工单审核状态不是审核中，-直接返回403不可编辑
+        if order.order_audit_status !=2: raise PermissionDenied()        
+        
+        #如果工单进度状态不是，提交或者处理中状态-直接返回403不可编辑
+        if order.order_execute_status not in [0,1]: raise PermissionDenied()
+        
+        #如果工单未到期或者已经过期-直接返回403
+        if order.is_expired() and order.is_unexpired(): raise PermissionDenied()
+        
+        #如果工单申请人不是自己-直接返回403
+        if request.user.id == order.order_user: raise PermissionDenied() 
+                    
+        
+        
+    def get(self, request, pk, *args, **kwargs):
+        
+        order = self.check_perms(request, pk)
+       
+        return Response(self.order_detail(order))
+        
+    def put(self, request, pk, *args, **kwargs): 
+        
+        order_mark = None
+        
+        order = self.get_object(pk)
+        
+        data = request.data.copy()
+
+        if "order_audit_status" in data.keys():
+            data = self.update_order_progress(data)
+        
+        if "order_mark" in data.keys():
+            order_mark = data.get("order_mark")
+        
+        if "order_content"  in data.keys():#更新工单内容
+            
+            self.check_update_content_perms(request, order)  
+                
+            if hasattr(order, 'service_audit_order'):
+                
+                order.service_audit_order.order_content = data.get("order_content")
+                order.service_audit_order.save()
+                
+                self.record_order_operation(order.id, order.order_audit_status, order.order_execute_status, request.user, data.get("order_content"))
+                
+                return Response(order.to_json())
+        else:#更新工单审核状体或者工单进度
+            
+            serializer = serializers.OrderSerializer(order, data=data)
+
+            if request.user.is_superuser or request.user.id == order.order_executor: 
+                if serializer.is_valid():
+                    serializer.save()
+                    self.record_order_operation(order.id, order.order_audit_status, order.order_execute_status, request.user, order_mark)
+                    return Response(serializer.data)            
+            
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-     
-    elif request.method == 'DELETE':
-        if not request.user.has_perm('orders.orders_delete_order_system'):
-            return Response(status=status.HTTP_403_FORBIDDEN)
-        snippet.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT) 
+
+
+class OrderLogsDetail(APIView):
+    
+    def get_object(self, pk):
+        try:
+            return Order_System.objects.get(id=pk)
+        except Order_System.DoesNotExist:
+            raise Http404   
+        
+    def get(self, request, pk, *args, **kwargs):
+        order = self.get_object(pk)
+        
+        if request.user.is_superuser or request.user.id == order.order_user or request.user.id == order.order_executor:
+            return Response([ ds.to_json() for ds in OrderLog.objects.filter(order=order.id).order_by("-id") ])
+                
+        return Response(status=status.HTTP_403_FORBIDDEN) 
     
 @api_view(['GET'])
 def order_count(request,format=None):
@@ -52,7 +125,8 @@ def order_count(request,format=None):
 
 class OrdersPaginator(APIView):
 
-    def get(self,request,*args,**kwargs):
+    def get(self, request, *args, **kwargs):
+        
         if request.user.is_superuser:
             ordersList = Order_System.objects.all().order_by("-id")
         else:
@@ -62,6 +136,54 @@ class OrdersPaginator(APIView):
         ser = serializers.OrderSerializer(instance=page_user_list, many=True)
         return page.get_paginated_response(ser.data)
     
+    def post(self,  request, *args, **kwargs):
+        
+        query_params = dict()
+        for ds in request.POST.keys():
+            query_params[ds] = request.POST.get(ds) 
+            
+        if not request.user.is_superuser:#普通用户只能查询自己的工单
+            if "order_user"  in query_params.keys() and "order_executor" in query_params.keys():
+                query_params["order_user"] = request.user.id
+                query_params["order_executor"] = request.user.id
+                
+            elif "order_user" in query_params.keys():    
+                query_params["order_user"] = request.user.id
+                
+            elif "order_executor" in query_params.keys():    
+                query_params["order_executor"] = request.user.id
+                
+            else:
+                query_params["order_user"] = request.user.id 
+                query_params["order_executor"] = request.user.id               
+
+        if "order_time" in query_params.keys(): 
+            try:
+                order_time = query_params.get('order_time').split(' - ')
+                query_params.pop('order_time')
+                query_params['create_time__gte'] = order_time[0] 
+                query_params['create_time__lte'] = order_time[1]
+            except:
+                pass
+       
+        if "order_expire" in query_params.keys(): 
+            ctime = base.changeTimestampTodatetime(int(time.time()))
+            
+            if str(query_params.get('order_expire')) == "1":
+                query_params['end_time__gte'] = ctime
+                query_params['start_time__lte'] = ctime
+                
+            elif str(query_params.get('order_expire')) == "2":
+                query_params['start_time__gte'] = ctime
+                
+            else:
+                query_params['end_time__lte'] = ctime
+                
+            query_params.pop('order_expire')
+            
+        order_lists = Order_System.objects.filter(**query_params).order_by("-id")[:1000]  
+        serializer = serializers.OrderSerializer(order_lists, many=True)
+        return Response(serializer.data)          
 
 
     

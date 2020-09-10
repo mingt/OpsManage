@@ -1,10 +1,13 @@
 {% extends 'base.html' %}
 {% block css-content %}
     <link rel="stylesheet" href="/static/jquery-confirm/jquery-confirm.min.css">
-    <link href="/static/datatable/datatables.net-buttons-bs/css/buttons.bootstrap.min.css" rel="stylesheet">
-    <link href="/static/datatable/datatables.net-fixedheader-bs/css/fixedHeader.bootstrap.min.css" rel="stylesheet">
-    <link href="/static/datatable/datatables.net-responsive-bs/css/responsive.bootstrap.min.css" rel="stylesheet">
-    <link href="/static/datatable/datatables.net-scroller-bs/css/scroller.bootstrap.min.css" rel="stylesheet"> 
+    <link href="/static/datatable/datatables.net-bs/css/dataTables.bootstrap.min.css" rel="stylesheet">	
+	<link href="/static/datatable/datatables.net-buttons-bs/css/buttons.bootstrap.min.css" rel="stylesheet">
+	<link href="/static/datatable/datatables.net-fixedheader-bs/css/fixedHeader.bootstrap.min.css" rel="stylesheet">
+	<link href="/static/datatable/datatables.net-responsive-bs/css/responsive.bootstrap.min.css" rel="stylesheet">
+	<link href="/static/datatable/datatables.net-scroller-bs/css/scroller.bootstrap.min.css" rel="stylesheet"> 
+	<link href="/static/datatable/datatables.net-select/css/select.dataTables.min.css" rel="stylesheet">
+	<link href="/static/bootstrap-daterangepicker/daterangepicker.css" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/bootstrap-select.css">  
     <link rel="stylesheet" href="/static/tooltips/css/tooltips.css">    
 	<style type="text/css"> 
@@ -85,7 +88,7 @@
 												<select class="selectpicker form-control" id="order_type"  name="order_type" required>
 													<option name="db_env" value="" selected="selected">选择一个类型</option>
 													<option  value="0">SQL审核</option>
-													<!-- <option  value="1">代码部署</option> -->
+													<option  value="1">运维服务</option>
 													<option  value="2">文件上传</option>
 													<option  value="3">文件下载</option>
 												</select>
@@ -102,20 +105,20 @@
 												</select>
 											 </div>						 	
 										</div>											
-										<div class="item form-group" >
+<!-- 										<div class="item form-group" >
 											 <label class="col-sm-2 control-label" >授权组<span class="required">*</span></label>
 											 <div class="col-sm-10">
 												<select class="selectpicker form-control"  name="grant_group" id="grant_group" required>
 													<option  value="" selected="selected">选择一个授权组</option>
 												</select>
 											 </div>						 	
-										</div>									
-										<div class="item form-group">
+										</div> -->									
+<!-- 										<div class="item form-group">
 											<label class="col-sm-2 control-label" >通知对象<span class="required">*</span></label>
 											<div class="col-sm-10">
 												<textarea class="form-control" rows="3" name="number" placeholder="分号隔开" id="number" required></textarea>		
 											</div>					
-										</div>														
+										</div>	 -->													
 										<legend></legend>																											
 										<div class="form-group">
 											<label class="col-sm-4 control-label"></label> 								
@@ -139,8 +142,7 @@
 													</th>
 													<th class="text-center">工单类型</th>				
 													<th class="text-center">通知类型</th>
-													<th class="text-center">授权组</th>
-													<th class="text-center">通知对象</th>
+													<!-- <th class="text-center">通知对象</th> -->
 													<th class="text-center">操作</th>
 												</tr>											    
 		                                </thead>
@@ -171,40 +173,137 @@
                   <div class="clearfix"></div>
                 </div>
                 <div class="x_content">
-                	<div class="row">	
-						<div class="btn-group  btn-group-sm pull-right">
-	                        <button class="btn btn-default" name="page_previous" type="button" value="">上一页</button>
-	                        <button class="btn btn-default" name="page_next" type="button" value="">下一页</button>
+                  	 <div class="row">
+	                  	 <div class="col-sm-6">             
+				             <p class="text-muted font-13 m-b-30">
+				                 	工单组合查询
+				             </p> 
+				         </div>  	
+		            </div>	
+	                <div class="row">
+				      <div class="col-md-2 col-sm-12 col-xs-12 form-group">
+						 <select class="selectpicker form-control" id="selOrderType" title="工类类型">
+							<option value="0">SQL更新</option>
+							<option value="1">运维服务</option>
+							<option value="2">文件分发</option>
+							<option value="3">文件下载</option>						 						
+						</select>
+				      </div>	                
+
+				      <div class="col-md-2 col-sm-12 col-xs-12 form-group">
+						 <select class="selectpicker form-control" id="selExecute" title="工单执行进度">
+							<option  value="0">已提交</option>
+						    <option  value="1">处理中</option>
+						    <option  value="2">已完成</option>
+						    <option  value="3">已回滚</option>
+						    <option  value="4">已关闭</option>
+						    <option  value="5">已失败</option>						 
+						</select>
+				      </div>  
+	
+	
+	                  <div class="col-md-2 col-sm-12 col-xs-12 form-group">
+	                    	<select class="selectpicker form-control" id="selAudit" title="工单授权状态">	
+							 	<option  value="1">已拒绝</option>
+							 	<option  value="2">审核中</option>	    
+							 	<option  value="3">已授权</option>	                  								
+							</select>  
+	                  </div>
+	
+	                  <div class="col-md-2 col-sm-12 col-xs-12 form-group">
+					   <select  class="selectpicker form-control" id="selAuditUser" title="工单申请人">			   		
+						</select>  				   									   							
+	                  </div>
+	                  
+	                  <div class="col-md-2 col-sm-12 col-xs-12 form-group">
+					   <select  class="selectpicker form-control" id="selExecuteUser" title="工单审核人">			   		
+						</select>  				   									   							
+	                  </div>	                  
+	                  
+				      <div class="col-md-2 col-sm-12 col-xs-12 form-group">
+						 <select class="selectpicker form-control" id="selExpired" title="工单过期状态">						 	
+						 	<option  value="0">已过期</option>
+						 	<option  value="1">未过期</option>
+						 	<option  value="2">未到期</option>
+						</select>
+				      </div>
+
+				      <div class="col-md-2 col-sm-12 col-xs-12 form-group">
+							<input type="text" name="order_time" placeholder="工单创建时间"  class="form-control" id="selOrderTime" value="" />	
+				      </div>
+				      	                  
+	                  <div class="col-md-2 col-sm-12 col-xs-12 form-group  pull-right">
+	                  	<div class="btn-group  btn-group-sm pull-right">
+	                        <button class="btn btn-default" name="orders_page_previous" type="button" value="">上一页</button>
+	                        <button class="btn btn-default" name="orders_page_next" type="button" value="">下一页</button>
 	                        <input type="hidden" id="currentUser" name="custId" value="{{user.id}}">
 	                    </div>
-                    </div>
-                    <br>
-                    <div class="row">							           
-	                    <table id="ordersLists" class="table table-hover">
-	                      <thead>
-	                        <tr>
-	                        	<th class="text-center">详情</th>
-				                <th>ID</th>
-				                <th>工单类型</th>
-				                <th>申请人</th>
-				                <th>工单主题</th>
-				                <th>操作人</th>
-				                <th>申请时间</th>
-				                <th class="text-center">状态</th>	
-				                <th>操作时间</th>				                
-								<th class="text-center">操作</th>
-	                        </tr>
-	                      </thead>
-	                      <tbody>
-	                      </tbody>
-	                    </table>   
+	                  </div>   	                  
+	                </div>		                            
+                    <div class="row">
+                    	<div class="col-md-12 col-sm-12 col-xs-12 form-group">	
+                    		<div class="product_price" id="divSelectedType" style="display:none;"></div> 
+                    	</div>
+                    	<div class="col-md-12 col-sm-12 col-xs-12 form-group">						           
+		                    <table id="ordersLists" class="table table-hover">
+		                      <thead>
+		                        <tr>
+		                        	<th class="text-center">详情</th>
+					                <th>ID</th>
+					                <th>工单类型</th>
+					                <th>申请人</th>
+					                <th>工单主题</th>
+					                <th>操作人</th>
+					                <th>申请时间</th>
+					                <th>执行状态</th>
+					                <th>审核状态</th>	
+					                <th>过期状态</th>	
+					                <th>过期时间</th>				                
+									<th class="text-center">操作</th>
+		                        </tr>
+		                      </thead>
+		                      <tbody>
+		                      </tbody>
+		                    </table>   
+	                   </div>
                    </div>	       
                 </div>
               </div>
             </div>
         </div>
               
+        <div class="modal fade bs-example-modal-log" tabindex="-1" role="dialog" aria-hidden="true">
+          <div class="modal-dialog modal-lg">
+            <div class="modal-content">
 
+              <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal"><span aria-hidden="true">×</span>
+                </button>
+                <h4 class="modal-title" id="orderLogModalLabel"></h4>
+              </div>
+              <div class="modal-body">
+                   <table id="ordersLogs" class="table table-hover">
+                     <thead>
+                       <tr>
+                        <th>工单ID</th>
+		                <th>操作人</th>
+		                <th>备注</th>
+		                <th>审核状态</th>
+		                <th>进度状态</th>
+		                <th>操作时间</th>				                
+                       </tr>
+                     </thead>
+                     <tbody>
+                     </tbody>
+                   </table> 					
+              </div>
+              <div class="modal-footer">
+                <!-- <button type="button" class="btn btn-default" data-dismiss="modal">Close</button> -->
+              </div>
+
+            </div>
+          </div>
+        </div>
 
 
 
@@ -222,6 +321,10 @@
     <script src="/static/datatable/datatables.net-buttons/js/buttons.html5.min.js"></script>
     <script src="/static/datatable/datatables.net-buttons/js/buttons.print.min.js"></script>   
     <script src="/static/tooltips/js/jquery.pure.tooltips.js"></script>	 
+	<!-- bootstrap-daterangepicker -->
+    <script src="/static/moment/min/moment.min.js"></script>
+    <script src="/static/bootstrap-daterangepicker/daterangepicker.js"></script>      
+    <script src="/static/js/orders/common.js"></script>
     <script src="/static/js/orders/list.js"></script>	
 	<script src="/static/validator/validator.js"></script> 
 {% endblock %}

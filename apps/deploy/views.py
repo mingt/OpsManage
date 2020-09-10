@@ -7,30 +7,20 @@ from django.http import JsonResponse
 from django.shortcuts import render
 from asset.models import Assets
 from deploy.models import *
-from utils.ansible.runner import ANSRunner
+from libs.ansible.runner import ANSRunner
 from dao.dispos import DeployScript,DeployPlaybook
-from dao.redisdb import DsRedis
 from django.contrib.auth.decorators import permission_required
 from utils.logger import logger
 from dao.assets import AssetsBase,AssetsSource
 from django.contrib.auth.mixins import LoginRequiredMixin
-from utils.base import method_decorator_adaptor,cmds
+from utils.base import method_decorator_adaptor
 
 
-class DelolyModel(LoginRequiredMixin,AssetsSource,View):
+class DelolyModel(LoginRequiredMixin,View):
     login_url = '/login/'
     def get(self, request, *args, **kwagrs):
-        return render(request, 'deploy/deploy_model.html',{"user":request.user})  
+        return render(request, 'deploy/deploy_model.html',{"user":request.user}) 
     
-    
-
-class DeployRun(LoginRequiredMixin,View):
-    login_url = '/login/'
-    def post(self, request, *args, **kwagrs):
-        redisKey = request.POST.get('ans_uuid')       
-        msg = DsRedis.OpsAnsibleModel.rpop(redisKey)
-        if msg:return JsonResponse({'msg':msg.decode("utf-8") ,"code":200,'data':[]}) 
-        else:return JsonResponse({'msg':None,"code":200,'data':[]})
         
 class DeployInventory(LoginRequiredMixin,AssetsBase,View):        
     login_url = '/login/'

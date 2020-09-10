@@ -11,7 +11,7 @@ from navbar.models import *
 from wiki.models import *
 from orders.models import *
 from apply.models import *
-from django.contrib.auth.models import Group,User
+from account.models import *
 from django_celery_beat.models  import CrontabSchedule,IntervalSchedule,PeriodicTask
 from django_celery_results.models import TaskResult 
 from rest_framework.pagination import CursorPagination
@@ -24,15 +24,25 @@ class PageConfig(CursorPagination):
     max_page_size = 200
 
 class UserSerializer(serializers.ModelSerializer):
-    date_joined = serializers.DateTimeField(format="%Y-%m-%d %H:%M:%S")
-    last_login = serializers.DateTimeField(format="%Y-%m-%d %H:%M:%S")
+    date_joined = serializers.DateTimeField(format="%Y-%m-%d %H:%M:%S",required=False)
+    last_login = serializers.DateTimeField(format="%Y-%m-%d %H:%M:%S",required=False)
+    superior_name = serializers.SerializerMethodField(read_only=True,required=False)
     class Meta:
         model = User
         fields = ('id','last_login','is_superuser','username',
                   'first_name','last_name','email','is_staff',
-                  'is_active','date_joined')       
- 
-           
+                  'is_active','date_joined',"mobile","name","department",
+                  'post','superior','roles','superior_name'
+                  )   
+        extra_kwargs = {
+                        'department': {'required': False,"read_only":True},
+                        'roles':{'required': False,"read_only":True},
+                        }  
+                        
+    def get_superior_name(self,obj):
+        return obj.superior_name()
+              
+        
 class BusinessEnvSerializer(serializers.ModelSerializer):
     class Meta:
         model = Business_Env_Assets
@@ -44,9 +54,10 @@ class BusinessTreeSerializer(serializers.ModelSerializer):
     last_node = serializers.SerializerMethodField(read_only=True,required=False)
     manage_name = serializers.SerializerMethodField(read_only=True,required=False)
     env_name = serializers.SerializerMethodField(read_only=True,required=False)
+    group_paths = serializers.SerializerMethodField(read_only=True,required=False)
     class Meta:
         model = Business_Tree_Assets
-        fields = ('id','text','env','env_name','manage','manage_name','parent','group','desc','icon','paths','last_node','tree_id')          
+        fields = ('id','text','env','env_name','manage','manage_name','parent','group','group_paths','desc','icon','paths','last_node','tree_id')          
     
     def get_env_name(self,obj):
         try:
@@ -69,10 +80,53 @@ class BusinessTreeSerializer(serializers.ModelSerializer):
     def get_icon(self,obj):
         return obj.icon()
     
-class GroupSerializer(serializers.ModelSerializer):
+    def get_group_paths(self,obj):
+        return obj.group_path()
+    
+class RoleSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Group
-        fields = ('id','name')
+        model = Role
+        fields = ('id','name','desc')
+        
+class StructureSerializer(serializers.ModelSerializer):
+    paths = serializers.SerializerMethodField(read_only=True,required=False)
+    icon = serializers.SerializerMethodField(read_only=True,required=False)
+    last_node = serializers.SerializerMethodField(read_only=True,required=False) 
+    manage_name = serializers.SerializerMethodField(read_only=True,required=False)    
+    class Meta:
+        model = Structure
+        fields = ('id','text','desc', 'type', 'parent', 'mail_group','manage','manage_name','wechat_webhook_url', 'dingding_webhook_url','icon','paths','last_node','tree_id')     
+           
+    def get_paths(self,obj):
+        return obj.node_path()
+    
+    def get_last_node(self,obj):
+        return obj.last_node()
+    
+    def get_icon(self,obj):
+        return obj.icon()
+    
+    def get_manage_name(self,obj):
+        return obj.manage_name()   
+
+class UserTaskSerializer(serializers.ModelSerializer):
+    ctime = serializers.DateTimeField(format="%Y-%m-%d %H:%M:%S",required=False)
+    etime = serializers.DateTimeField(format="%Y-%m-%d %H:%M:%S",required=False) 
+    user = serializers.SerializerMethodField(read_only=True,required=False)
+    file = serializers.SerializerMethodField(read_only=True,required=False)
+    class Meta:
+        model = User_Async_Task
+        fields = ('id','task_id', 'task_name', 'extra_id', 'user', 'type', 'status', 'args', 'file', 'msg', 'token', 'ctk', 'ctime','etime')     
+           
+    def get_file(self,obj):
+        return str(obj.file).split('/')[-1]
+    
+    def get_user(self,obj):
+        try:  
+            return User.objects.get(id=obj.user).name
+        except Exception as ex:
+            return "未知"
+    
           
 class TagsSerializer(serializers.ModelSerializer):
     class Meta:
@@ -231,10 +285,14 @@ class NetworkSerializer(serializers.ModelSerializer):
 class OrderSerializer(serializers.ModelSerializer):
     create_time = serializers.DateTimeField(format="%Y-%m-%d %H:%M:%S",required=False)
     modify_time = serializers.DateTimeField(format="%Y-%m-%d %H:%M:%S",required=False)
+    start_time = serializers.DateTimeField(format="%Y-%m-%d %H:%M:%S",required=False)
+    end_time = serializers.DateTimeField(format="%Y-%m-%d %H:%M:%S",required=False)  
+    expire = serializers.SerializerMethodField(read_only=True,required=False)  
     class Meta:
         model = Order_System
-        fields = ('id','order_subject','order_user','order_status','order_cancel',
-                  'order_type','order_level','create_time','modify_time','order_executor')
+        fields = ('id','order_subject','order_user','order_audit_status','order_mark',
+                  'order_type','order_level','create_time','modify_time','order_executor',
+                  'end_time','start_time',"expire","order_execute_status")
         extra_kwargs = {
                         'order_subject': {'required': False},
                         'order_user':{'required': False},
@@ -242,44 +300,86 @@ class OrderSerializer(serializers.ModelSerializer):
                         'order_type':{'required': False},
                         'order_executor':{'required': False},
                         }                 
+    
+    def get_expire(self,obj):
+        if obj.is_expired() and obj.is_unexpired():#未到期
+            return 1
+        
+        elif obj.is_unexpired() == 0 and obj.is_expired(): #还未到期，而且还未到工单执行时间
+            return 2
+
+        elif obj.is_expired() == 0: #过期
+            return 0             
         
 class DataBaseServerSerializer(serializers.ModelSerializer):
+    db_passwd = serializers.SerializerMethodField(read_only=True,required=False)
     detail = serializers.SerializerMethodField(read_only=True,required=False)
     class Meta:
-        model = DataBase_Server_Config
+        model = DataBase_MySQL_Server_Config
         fields = ('id','db_env','db_version','db_assets_id',
                   'db_user','db_port','db_mark','db_type',
-                  "db_mode","db_business","db_rw","detail")  
+                  "db_mode","db_business","db_rw","db_passwd",
+                  "detail")  
+    
+    def get_db_passwd(self,obj):
+        return obj.db_passwd[:1]+'****'+obj.db_passwd[-1]
     
     def get_detail(self,obj):
         return obj.to_json()
 
 class DatabaseSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Database_Detail
+        model = Database_MySQL_Detail
         fields = ('id','db_name','db_size',"total_table") 
           
     def create(self,  validated_data):
-        return Database_Detail.objects.create(db_server=self.context["db_server"], **validated_data)        
+        return Database_MySQL_Detail.objects.create(db_server=self.context["db_server"], **validated_data)        
 
 class DatabaseTableSerializer(serializers.ModelSerializer):
     class Meta:
         model = Database_Table_Detail_Record
-        fields = ('id','table_size','table_row','table_name','last_time')        
+        fields = ('id','table_size','table_row','table_name','table_engine','collation','format','last_time')       
              
+
+class RedisServerSerializer(serializers.ModelSerializer):
+    db_passwd = serializers.SerializerMethodField(read_only=True,required=False)
+    detail = serializers.SerializerMethodField(read_only=True,required=False)
+    class Meta:
+        model = DataBase_Redis_Server_Config
+        fields = ('id','db_env','db_version','db_assets_id',
+                  'db_port','db_mark','db_type',"db_mode",
+                  "db_business","db_rw","db_passwd","detail")  
+    
+    def get_db_passwd(self,obj):
+        if len(obj.db_passwd) > 0:
+            return obj.db_passwd[:1]+'****'+obj.db_passwd[-1]
+        else:
+            return obj.db_passwd
+        
+    def get_detail(self,obj):
+        return obj.to_json()
+
+class RedisSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Database_Redis_Detail
+        fields = ('id','db_name','expires',"total_keys") 
+          
+    def create(self,  validated_data):
+        return Database_Redis_Detail.objects.create(db_server=self.context["db_server"], **validated_data) 
+
         
 class CustomSQLSerializer(serializers.ModelSerializer):
     class Meta:
         model = Custom_High_Risk_SQL
         fields = ('id','sql')
         
-class HistroySQLSerializer(serializers.ModelSerializer):
+class HistorySQLSerializer(serializers.ModelSerializer):
     create_time = serializers.DateTimeField(format="%Y-%m-%d %H:%M:%S")
     db_host = serializers.SerializerMethodField(read_only=True,required=False)
     db_name = serializers.SerializerMethodField(read_only=True,required=False)
     db_env = serializers.SerializerMethodField(read_only=True,required=False)
     class Meta:
-        model = SQL_Execute_Histroy
+        model = SQL_Execute_History
         fields = ('id','exe_sql','exe_user','exec_status','exe_result','db_host','db_name','create_time','db_env','exe_db',"exe_time","exe_effect_row","favorite","mark")        
     
     def get_db_env(self,obj):
@@ -498,7 +598,7 @@ class PostSerializer(serializers.ModelSerializer):
 class OrdersNoticeConfigSerializer(serializers.ModelSerializer):                        
     class Meta:
         model = Order_Notice_Config
-        fields = ('id','order_type','grant_group','mode','number')     
+        fields = ('id','order_type','mode')     
            
 class IPVSSerializer(serializers.ModelSerializer):
     sip = serializers.CharField(source='ipvs_assets.server_assets.ip', read_only=True)

@@ -8,11 +8,12 @@ from navbar.models import *
 from sched.models import *
 from wiki.models import *
 from orders.models import *
-from django.contrib.auth.models import User,Group
+from django.contrib.auth.models import Group
+from account.models import User,Structure
 from utils.logger import logger
-from dao.base import DjangoCustomCursors,DataHandle
+from dao.base import DataHandle
 from django.http import QueryDict
-from utils.ansible.runner import ANSRunner
+from libs.ansible.runner import ANSRunner
 from cicd.models import Project_Config
 from django.db.models import Q
 
@@ -57,9 +58,6 @@ class AssetsBase(DataHandle):
     def tagsList(self):
         return Tags_Assets.objects.all()      
     
-    def groupList(self):
-        return Group.objects.all()
-    
     def zoneList(self):
         return Zone_Assets.objects.all()
     
@@ -74,6 +72,12 @@ class AssetsBase(DataHandle):
     
     def assetsList(self):
         return Assets.objects.all()
+    
+    def groupList(self):
+        dicts = []
+        for ds in Structure.objects.filter(level__gt=0):
+            if ds.last_node() > 0:dicts.append(ds.to_json())
+        return dicts
     
     def manufacturerList(self):
         try:
@@ -119,15 +123,15 @@ class AssetsBase(DataHandle):
       
     
     def base(self):
-        return {"userList":self.userList(),"idcList":self.idcList(),
-                "groupList":self.groupList(),"raidList":self.raidList(),
+        return {"userList":self.userList(),"idcList":self.idcList(),               
                 "name":self.name,"serverList":self.serverList(),
                 "inventoryList":self.inventoryList(),"uuid": uuid.uuid4(),
                 "cabinetList":self.cabinetList(),"lineList":self.lineList(),
                 "manufacturerList":self.manufacturerList(),"modelList":self.modelList(),
                 "providerList":self.providerList(),"cpuList":self.cpuList(),
                 "systemList":self.systemList(),"kernelList":self.kernelList(),
-                "tagsList":self.tagsList(),"zoneList":self.zoneList()
+                "tagsList":self.tagsList(),"zoneList":self.zoneList(),
+                "raidList":self.raidList(),"groupList":self.groupList(),
                 }  
         
     def assets(self,id):
@@ -406,14 +410,14 @@ class AssetsBase(DataHandle):
                
 
 
-class AssetsCount(DjangoCustomCursors):
+class AssetsCount(object):
     def __init__(self):
         super(AssetsCount, self).__init__()  
         self.dataList = []
         
     def groupAssets(self):
         try:
-            return [ {"count":ds.count,"name":ds.name} for ds in Group.objects.raw("""SELECT t1.id,count(*) as count,t1.name from auth_group t1, opsmanage_assets t2 WHERE t2.group = t1.id GROUP BY t1.id ORDER BY count desc limit 5""")]
+            return [ {"count":ds.count,"name":ds.text} for ds in Group.objects.raw("""SELECT t1.id,count(*) as count,t1.text from opsmanage_structure t1, opsmanage_assets t2 WHERE t2.group = t1.id GROUP BY t1.id ORDER BY count desc limit 5;""")]
         except Exception as ex:
             logger.error(msg="统计业务组主机资产失败:{ex}".format(ex=ex))
         return self.dataList
@@ -443,7 +447,7 @@ class AssetsCount(DjangoCustomCursors):
     def databasesAssets(self):
         dataList = []
         try:
-            for ds in DataBase_Server_Config.objects.raw("""SELECT id,count(*) as count,db_env from opsmanage_database_server_config GROUP BY db_env;"""):
+            for ds in DataBase_MySQL_Server_Config.objects.raw("""SELECT id,count(*) as count,db_env from opsmanage_database_server_config GROUP BY db_env;"""):
                 if ds.db_env == "beta":dataList.append({"count":ds.count,"db_env":"测试环境"})
                 else:
                     dataList.append({"count":ds.count,"db_env":"生产环境"})           
@@ -488,7 +492,7 @@ class AssetsCount(DjangoCustomCursors):
         return {"name":"代码部署","count":Project_Config.objects.all().count()}
         
     def dbCount(self):
-        return {"name":"数据库","count":DataBase_Server_Config.objects.all().count()}
+        return {"name":"数据库","count":DataBase_MySQL_Server_Config.objects.all().count()}
     
     def scriptCount(self):
         return {"name":"部署脚本","count":Deploy_Script.objects.all().count()}
@@ -601,7 +605,7 @@ class AssetsSource(object):
             self.resource.append(data)
         return  self.sList, self.resource           
 
-    def allowcator(self,sub,request):
+    def allowcator(self, sub, request):
         if hasattr(self,sub):
             func= getattr(self,sub)
             return func(request)
@@ -804,12 +808,14 @@ class AssetsSource(object):
             sList,resource = self.idSourceList(ids=request.POST.getlist('ids[]'))
             ANS = ANSRunner(resource)  
             ANS.run_model(host_list=sList,module_name='setup',module_args="") 
-            data = ANS.handle_cmdb_data(ANS.get_model_result())            
-        elif request.POST.get('model')=='setup':
+            data = ANS.handle_cmdb_data(ANS.get_model_result())    
+                    
+        elif request.POST.get('model')=='collector':
             sList,resource = self.idSource(ids=request.POST.get('ids'))
             ANS = ANSRunner(resource)  
             ANS.run_model(host_list=sList,module_name='setup',module_args="")  
-            data = ANS.handle_cmdb_data(ANS.get_model_result())           
+            data = ANS.handle_cmdb_data(ANS.get_model_result())    
+                   
         else:
             sList,resource = self.idSource(ids=request.POST.get('ids'))
             ANS = ANSRunner(resource)  
@@ -817,12 +823,12 @@ class AssetsSource(object):
             data = ANS.handle_cmdb_crawHw_data(ANS.get_model_result())                          
         return data,ANS.get_model_result()
     
-    def batch(self,request):  
-        return self.setup(request)
+    def batch(self, request):  
+        return self.collector(request)
     
-    def setup(self,request):  
-        sList,fList = [],[]
-        data,result = self.get_data(request) 
+    def collector(self, request):  
+        sList,fList = [], []
+        data, result = self.get_data(request) 
         if data:                  
             for ds in data:
                 status = ds.get('status')

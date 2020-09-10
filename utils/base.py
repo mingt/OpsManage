@@ -3,7 +3,7 @@
 '''版本控制方法'''
 import magic
 from random import choice
-import string,hashlib,calendar
+import string, hashlib, calendar
 import subprocess,os,time,smtplib
 from datetime import datetime,timedelta,date
 from email.mime.text import MIMEText
@@ -13,26 +13,6 @@ from django.core.serializers.json import DjangoJSONEncoder
 from .logger import logger
 from functools import wraps
 import ply.lex as lex, re
-
-def extract_table_name_from_sql(sql_str):
-    q = re.sub(r"/\*[^*]*\*+(?:[^*/][^*]*\*+)*/", "", sql_str)
-
-    lines = [line for line in q.splitlines() if not re.match("^\s*(--|#)", line)]
-
-    q = " ".join([re.split("--|#", line)[0] for line in lines])
-
-    tokens = re.split(r"[\s)(;]+", q)
-
-    result = []
-    get_next = False
-    for token in tokens:
-        if get_next:
-            if token.lower() not in ["", "select"]:
-                result.append(token)
-            get_next = False
-        get_next = token.lower() in ["from", "join","into","table","update","desc"]
-
-    return result
 
 def method_decorator_adaptor(adapt_to, *decorator_args, **decorator_kwargs):
     def decorator_outer(func):
@@ -45,13 +25,6 @@ def method_decorator_adaptor(adapt_to, *decorator_args, **decorator_kwargs):
         return decorator
     return decorator_outer
 
-class LazyEncoder(DjangoJSONEncoder):
-    def default(self, obj):
-        if isinstance(obj,  datetime):
-            return obj.strftime('%Y-%m-%d %H:%M:%S')  
-        elif isinstance(obj, date):  
-            return obj.strftime("%Y-%m-%d")         
-        return super().default(obj)
 
 def file_iterator(file_name, chunk_size=512):
     f = open(file_name, "rb")
@@ -63,18 +36,38 @@ def file_iterator(file_name, chunk_size=512):
             break 
     f.close()
 
+def format_time(seconds):
+    m, s = divmod(seconds, 60)
+    h, m = divmod(m, 60)  
+    d, m = divmod(h, 24) 
+    if d > 1:
+        return "%02d 天" % d
+    return "%02d:%02d:%02d" % (h, m, s)
   
 def radString(length=8,chars=string.ascii_letters+string.digits):
     return ''.join([choice(chars) for i in range(length)])
 
+def exec_command(cmd, timeout=None):
+    '''执行shell命令函数'''
+    result = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    try:
+        stdout, stderr = result.communicate(timeout=timeout)
+    except Exception as ex:
+        result.kill()
+        return (256, str(ex).replace(cmd,""))
+    code = result.returncode
+    if code != 0 and stderr:
+        return code, stderr.decode('utf-8')
+    return code, stdout.decode('utf-8')
+
 def rsync(sourceDir,destDir,exclude=None):
     if exclude:cmd = "rsync -au --delete {exclude} {sourceDir} {destDir}".format(sourceDir=sourceDir,destDir=destDir,exclude=exclude)
     else:cmd = "rsync -au --delete {sourceDir} {destDir}".format(sourceDir=sourceDir,destDir=destDir)
-    return subprocess.getstatusoutput(cmd)
+    return exec_command(cmd)
     
 def mkdir(dirPath):
     mkDir = "mkdir -p {dirPath}".format(dirPath=dirPath)
-    return subprocess.getstatusoutput(mkDir)    
+    return exec_command(mkDir)    
     
     
 def cd(localDir):
@@ -91,7 +84,7 @@ def cmds(cmds):
 
 def chown(user,path):
     cmd = "chown -R {user}:{user} {path}".format(user=user,path=path)
-    return subprocess.getstatusoutput(cmd)
+    return exec_command(cmd)
 
 def makeToken(strs):
     m = hashlib.md5()   
@@ -100,11 +93,10 @@ def makeToken(strs):
 
 def lns(spath,dpath):
     if spath and dpath:
-#         rmLn = "rm -rf {dpath}".format(dpath=dpath)
-#         status,result = subprocess.getstatusoutput(rmLn)
         mkLn = "ln -s {spath} {dpath}".format(spath=spath,dpath=dpath)
-        return subprocess.getstatusoutput(mkLn)
-    else:return (1,"缺少路径")    
+        return exec_command(mkLn)
+    else:
+        return (1,"缺少路径")    
 
 def getDaysAgo(num,fmt="%Y%m%d"):
     threeDayAgo = (datetime.now() - timedelta(days = num))
@@ -124,7 +116,7 @@ def changeTimestampTodatetime(value,format='%Y-%m-%d %H:%M:%S'):
 
 def getSQLAdvisor(host,port,user,passwd,dbname,sql):
     cmd = """/usr/bin/sqladvisor -h {host}  -P {port}  -u {user} -p '{passwd}' -d {dbname} -q '{sql}' -v 1""".format(host=host,port=port,user=user,passwd=passwd,dbname=dbname,sql=sql)
-    return subprocess.getstatusoutput(cmd)
+    return exec_command(cmd)
 
 def getDayAfter(num,format=None):
     #获取今天多少天以后的日期
@@ -163,6 +155,13 @@ def getFileType(filePath):
         file_type = '未知'
         logger.error("获取文件类型失败: {ex}".format(ex=ex))
     return file_type
+
+def get_file_md5sum(file):
+    m = hashlib.md5()
+    with open(file,'rb') as f:
+        for line in f:
+            m.update(line)
+    return m.hexdigest()
    
 def get_date_list(begin_date, end_date,fmt="%Y-%m-%d %H:%M"):
     dates = []
@@ -175,4 +174,19 @@ def get_date_list(begin_date, end_date,fmt="%Y-%m-%d %H:%M"):
             date = dt.strftime(fmt)
     except Exception as ex:
         logger.error("获取时间列表失败: {ex}".format(ex=ex))
-    return dates    
+    return dates   
+
+def mysql_bakcup_tables(db, table, path, task_id , where_claus=None, timeout=None):
+    if where_claus is None:
+        where_claus = ''
+    else:
+        where_claus = '--where="{where}"'.format(where=where_claus)
+    
+    if not os.path.exists(path):
+        os.makedirs(path)    
+        
+    cmd = '''/usr/bin/mysqldump --host={host} --port={port} --user={user} --password={pwd} {database} {table} {where} |gzip > {path}{task_id}.sql.gz'''.format(host=db.get('ip'), port=db.get('db_port'),
+                                                                                  user=db.get('db_user'), pwd=db.get('db_passwd'),
+                                                                                  database=db.get("db_name"), table=table, 
+                                                                                  where=where_claus, path=path, task_id=task_id)
+    return exec_command(cmd,timeout)    

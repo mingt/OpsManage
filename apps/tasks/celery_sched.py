@@ -3,8 +3,8 @@
 import pymysql
 from celery import task
 from asset.models import Assets,Server_Assets, NetworkCard_Assets
-from databases.models import DataBase_Server_Config
-from utils.ansible.runner import ANSRunner
+from databases.models import DataBase_MySQL_Server_Config
+from libs.ansible.runner import ANSRunner
 
 
     
@@ -70,7 +70,7 @@ def schedule_update_assets():
 def schedule_exec_sql(**kw):
     if 'sql' and 'dbId' in kw.keys():
         try:
-            db = DataBase_Server_Config.objects.get(id=kw.get('dbId'))
+            db = DataBase_MySQL_Server_Config.objects.get(id=kw.get('dbId'))
         except Exception as ex:
             {"status":"failed","msg":str(ex)} 
         try:
